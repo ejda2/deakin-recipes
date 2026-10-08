@@ -52,7 +52,7 @@ h1, h2, h3, h4 { font-family: var(--head); font-weight: 700; line-height: 1.15; 
   box-shadow: 0 1px 0 #C5CDD6, 0 12px 30px -18px rgba(31, 78, 140, .35);
   background-image: repeating-linear-gradient(to bottom, transparent 0 31px, var(--rule) 31px 32px); background-position: 0 92px; }
 .card-rule { height: 0; border-top: 2px solid var(--red); margin: 0 -32px 0; position: relative; top: 90px; }
-.signin-card h1 { font-size: 34px; padding-top: 36px; height: 92px; }
+.signin-card h1 { font-size: clamp(20px, 6.4vw, 30px); white-space: nowrap; padding-top: 40px; height: 92px; }
 .signin-sub { margin: 4px 0 24px; line-height: 32px; }
 .google { background: var(--card) !important; color: var(--ink) !important; border-color: var(--line); padding: 12px 18px; }
 .google:hover { border-color: var(--cobalt) !important; }
@@ -209,21 +209,31 @@ textarea:focus, .form input:focus, select:focus { border-color: var(--cobalt); o
 
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
 
-/* Printing a single recipe */
+/* Printing a single recipe on one US Letter page.
+   Just before printing, the app adds .print-mode to <html>, lays the card out at
+   printed width, and sets --pz so the whole recipe fits on one page. */
+html.print-mode body { background: #fff; }
+html.print-mode .card { width: calc(7.4in / var(--pz, 1)); zoom: var(--pz, 1); box-shadow: none; font-size: 15px; }
+html.print-mode .card-head { padding: 0 0 8px; }
+html.print-mode .card-head h1 { font-size: 34px; }
+html.print-mode .from { font-size: 26px; }
+html.print-mode .card-body { grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); }
+html.print-mode .card-body section, html.print-mode .notes { padding: 12px 0 4px; }
+html.print-mode .ingredients { padding-right: 18px !important; border-right: 1px solid var(--rule); border-bottom: 0; }
+html.print-mode .directions { padding-left: 18px !important; }
+html.print-mode .ingredients li { padding: 3px 0; }
+html.print-mode .directions li { padding-bottom: 8px; }
+html.print-mode .notes { background: none; }
+html.print-mode .updated { display: none; }
+html.print-mode .print-only { display: inline; }
+
 @media print {
-  @page { margin: 0.6in; }
-  body { background: #fff; font-size: 11.5pt; }
+  @page { size: letter; margin: 0; }
+  body { background: #fff; }
   .no-print, .preview-bar, .toast, .side, .top, dialog { display: none !important; }
   .print-only { display: inline; }
-  .layout { display: block; padding: 0; max-width: none; }
-  .detail { max-width: none; }
+  .layout { display: block; padding: 0; margin: 0; max-width: none; }
+  .detail { max-width: none; padding: 0.55in 0.55in; }
   .card { box-shadow: none; }
-  .card-head { padding: 0 0 10px; }
-  .card-head h1 { font-size: 26pt; }
-  .card-body { grid-template-columns: 5fr 7fr; }
-  .card-body section, .notes { padding: 14px 0 0; }
-  .ingredients { padding-right: 20px !important; }
-  .directions { padding-left: 20px !important; }
-  .notes { background: none; }
-  .directions li, .ingredients li { break-inside: avoid; }
+  .card, .card * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 }
