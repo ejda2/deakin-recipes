@@ -76,110 +76,140 @@ function runningHeader(doc, recipe, continued) {
   doc.line(M, M + 6, PAGE_W - M, M + 6);
 }
 
-// Draws one recipe starting on the current page. Returns nothing; adds pages as needed.
-function drawRecipe(doc, r) {
+// Lays out one recipe at size factor s (1 = full size). With draw=false it only
+// measures and returns how many pages the recipe would take.
+function layoutRecipe(doc, r, s, draw) {
   let y = TOP + 14;
-  runningHeader(doc, r, false);
+  let pages = 1;
+  const T = (...a) => { if (draw) doc.text(...a); };
+  const L = (x1, y1, x2, y2, color, w) => {
+    if (!draw) return;
+    doc.setDrawColor(...color);
+    doc.setLineWidth(w);
+    doc.line(x1, y1, x2, y2);
+  };
+  if (draw) runningHeader(doc, r, false);
 
   const ensure = (h) => {
     if (y + h > BOTTOM) {
-      doc.addPage();
-      runningHeader(doc, r, true);
+      pages += 1;
+      if (draw) { doc.addPage(); runningHeader(doc, r, true); }
       y = TOP + 10;
     }
   };
 
+  const BODY = 10.5 * s;
+  const LEAD = 14.2 * s;
+
   // Title
-  set(doc, "Zilla", "bold", 24);
+  set(doc, "Zilla", "bold", 24 * Math.max(s, 0.8));
   const titleLines = doc.splitTextToSize(clean(r.title), TEXT_W);
-  titleLines.forEach((l) => { doc.text(l, M, y + 18); y += 27; });
+  titleLines.forEach((l) => { T(l, M, y + 18); y += 27 * Math.max(s, 0.8); });
 
   // Meta
-  set(doc, "PTSans", "italic", 10.5, MUTED);
+  set(doc, "PTSans", "italic", 10.5 * Math.max(s, 0.85), MUTED);
   const meta = [`From ${clean(r.contributorName) || "the family"}`];
   if (r.prep) meta.push(`Prep/cook time: ${clean(r.prep)}`);
-  doc.text(meta.join("     "), M, y + 6);
+  T(meta.join("     "), M, y + 6);
   y += 16;
-  doc.setDrawColor(...RED);
-  doc.setLineWidth(1.4);
-  doc.line(M, y, PAGE_W - M, y);
-  y += 22;
+  L(M, y, PAGE_W - M, y, RED, 1.4);
+  y += 22 * s;
 
   const sectionHead = (label) => {
-    ensure(40);
-    set(doc, "ZillaSemi", "normal", 13.5, COBALT);
-    doc.text(label, M, y);
-    y += 16;
+    ensure(40 * s);
+    set(doc, "ZillaSemi", "normal", 13.5 * Math.max(s, 0.85), COBALT);
+    T(label, M, y);
+    y += 16 * s;
   };
 
-  const LEAD = 14.2;
-  const listBlock = (blocks, numbered) => {
+  const listBlock = (blocks, numbered, x0 = M, width = TEXT_W) => {
     let n = 0;
     blocks.forEach((b) => {
       if (b.type === "head") {
         n = 0;
         ensure(LEAD * 3);
-        y += 3;
-        set(doc, "PTSans", "bold", 10.5);
-        doc.text(clean(b.text), M, y);
+        y += 3 * s;
+        set(doc, "PTSans", "bold", BODY);
+        T(clean(b.text), x0, y);
         y += LEAD;
         return;
       }
       n += 1;
-      const indent = numbered ? 22 : 14;
-      set(doc, "PTSans", "normal", 10.5);
-      const lines = doc.splitTextToSize(clean(b.text), TEXT_W - indent);
+      const indent = (numbered ? 22 : 12) * Math.max(s, 0.8);
+      set(doc, "PTSans", "normal", BODY);
+      const lines = doc.splitTextToSize(clean(b.text), width - indent);
       ensure(LEAD * Math.min(lines.length, 2));
       if (numbered) {
-        set(doc, "PTSans", "bold", 10.5, COBALT);
-        doc.text(`${n}.`, M, y);
-        set(doc, "PTSans", "normal", 10.5);
+        set(doc, "PTSans", "bold", BODY, COBALT);
+        T(`${n}.`, x0, y);
       } else {
-        set(doc, "PTSans", "normal", 10.5, COBALT);
-        doc.text("•", M + 2, y);
-        set(doc, "PTSans", "normal", 10.5);
+        set(doc, "PTSans", "normal", BODY, COBALT);
+        T("•", x0 + 2, y);
       }
+      set(doc, "PTSans", "normal", BODY);
       lines.forEach((l, i) => {
         if (i > 0) ensure(LEAD);
-        doc.text(l, M + indent, y);
+        T(l, x0 + indent, y);
         y += LEAD;
       });
-      if (numbered) y += 4;
+      if (numbered) y += 4 * s;
     });
+  };
+
+  // Long ingredient lists go in two side-by-side columns.
+  const ingredientColumns = (blocks) => {
+    if (blocks.length < 9) return listBlock(blocks, false);
+    let cut = Math.ceil(blocks.length / 2);
+    while (cut > 1 && blocks[cut - 1].type === "head") cut -= 1;
+    const gap = 24;
+    const colW = (TEXT_W - gap) / 2;
+    const top = y;
+    listBlock(blocks.slice(0, cut), false, M, colW);
+    const leftEnd = y;
+    y = top;
+    listBlock(blocks.slice(cut), false, M + colW + gap, colW);
+    y = Math.max(leftEnd, y);
   };
 
   const ing = parseBlocks(r.ingredients);
   if (ing.length) {
     sectionHead("Ingredients");
-    listBlock(ing, false);
-    y += 12;
+    ingredientColumns(ing);
+    y += 12 * s;
   }
   const dir = parseBlocks(r.directions);
   if (dir.length) {
     sectionHead("Directions");
     listBlock(dir, true);
-    y += 10;
+    y += 10 * s;
   }
   const notes = paragraphs(r.notes);
   if (notes.length) {
     sectionHead("Notes");
-    set(doc, "PTSans", "normal", 10.5);
     notes.forEach((p) => {
       p.split("\n").forEach((line) => {
+        set(doc, "PTSans", "normal", BODY);
         const lines = doc.splitTextToSize(clean(line.trim()), TEXT_W - 12);
         lines.forEach((l) => {
           ensure(LEAD);
-          doc.setDrawColor(...RULE);
-          doc.setLineWidth(2);
-          doc.line(M + 1, y - 10, M + 1, y + 4);
-          set(doc, "PTSans", "normal", 10.5);
-          doc.text(l, M + 12, y);
+          L(M + 1, y - 10 * s, M + 1, y + 4 * s, RULE, 2);
+          set(doc, "PTSans", "normal", BODY);
+          T(l, M + 12, y);
           y += LEAD;
         });
       });
-      y += 6;
+      y += 6 * s;
     });
   }
+  return pages;
+}
+
+// Draws one recipe starting on the current page, shrinking the type as much
+// as needed (down to about 60%) so it fits on a single page.
+function drawRecipe(doc, r) {
+  let s = 1;
+  while (s > 0.6 && layoutRecipe(doc, r, s, false) > 1) s = Math.round((s - 0.03) * 100) / 100;
+  layoutRecipe(doc, r, s, true);
 }
 
 function footers(doc, startPage) {

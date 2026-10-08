@@ -268,7 +268,48 @@ function Comments({ recipeId, user, isAdmin, toast }) {
   );
 }
 
+// Fits the recipe card onto one printed page (US Letter, 0.55in margins).
+const PRINT_H = (11 - 1.1) * 96; // printable height in CSS pixels
+function usePrintFit(active) {
+  useEffect(() => {
+    if (!active) return;
+    const root = document.documentElement;
+    const before = () => {
+      const card = document.querySelector(".card");
+      if (!card) return;
+      root.classList.add("print-mode");
+      const fits = (z) => {
+        root.style.setProperty("--pz", String(z));
+        return card.getBoundingClientRect().height <= PRINT_H * 0.97;
+      };
+      let z = 1;
+      if (!fits(1)) {
+        // Binary search for the largest size that still fits on one page.
+        let lo = 0.4, hi = 1;
+        for (let i = 0; i < 12; i++) {
+          const mid = (lo + hi) / 2;
+          if (fits(mid)) lo = mid; else hi = mid;
+        }
+        z = lo;
+      }
+      root.style.setProperty("--pz", String(z));
+    };
+    const after = () => {
+      root.classList.remove("print-mode");
+      root.style.removeProperty("--pz");
+    };
+    window.addEventListener("beforeprint", before);
+    window.addEventListener("afterprint", after);
+    return () => {
+      window.removeEventListener("beforeprint", before);
+      window.removeEventListener("afterprint", after);
+      after();
+    };
+  }, [active]);
+}
+
 function RecipeView({ recipe, user, isAdmin, canEdit, fav, toggleFav, toast, onExportOne }) {
+  usePrintFit(!!recipe);
   if (!recipe) return <main className="detail"><p className="empty">That recipe isn't here. It may have been deleted. <a href="#/">Back to all recipes</a></p></main>;
   const notes = paragraphs(recipe.notes);
   return (
