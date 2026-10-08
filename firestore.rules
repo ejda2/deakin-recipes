@@ -1,0 +1,109 @@
+rules_version = '2';
+
+// Security rules for the Deakin Family Recipes app.
+// Paste this whole file into Firebase console > Firestore Database > Rules, then click Publish.
+//
+// Who can do what:
+//   - Anyone signed in with Google can read recipes and comments, add recipes, comment, and keep favorites.
+//   - A recipe can be edited or deleted by the person who added it, by a family member the admin has
+//     linked to that recipe's contributor name, or by the admin.
+//   - Comments can be deleted by their author or the admin.
+//   - Only the admin can link people to contributor names.
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Keep in sync with ADMIN_EMAIL in src/firebase.js
+    function isAdmin() {
+      return request.auth != null
+        && request.auth.token.email == "ejdeakin@gmail.com"
+        && request.auth.token.email_verified == true;
+    }
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function userPath() {
+      return /databases/$(database)/documents/users/$(request.auth.uid);
+    }
+
+    function myLinkedName() {
+      return exists(userPath()) ? get(userPath()).data.get("linkedName", "") : "";
+    }
+
+    function textOk(v, max) {
+      return v is string && v.size() <= max;
+    }
+
+    function validRecipe(d) {
+      return d.keys().hasOnly(["title", "category", "prep", "ingredients", "directions", "notes",
+                               "contributorName", "ownerUid", "createdAt", "updatedAt", "updatedByName"])
+        && d.title is string && d.title.size() > 0 && d.title.size() <= 150
+        && textOk(d.category, 40) && d.category.size() > 0
+        && textOk(d.prep, 150)
+        && textOk(d.ingredients, 20000)
+        && textOk(d.directions, 30000)
+        && textOk(d.notes, 20000)
+        && d.contributorName is string && d.contributorName.size() > 0 && d.contributorName.size() <= 80
+        && textOk(d.updatedByName, 120);
+    }
+
+    function canEdit(r) {
+      return isAdmin()
+        || (r.data.ownerUid != null && r.data.ownerUid == request.auth.uid)
+        || (myLinkedName() != "" && myLinkedName() == r.data.contributorName);
+    }
+
+    match /recipes/{recipeId} {
+      allow read: if signedIn();
+
+      allow create: if signedIn()
+        && validRecipe(request.resource.data)
+        && (isAdmin() || (
+              request.resource.data.ownerUid == request.auth.uid
+              && (request.resource.data.contributorName == myLinkedName()
+                  || request.resource.data.contributorName == request.auth.token.get("name", "")
+                  || request.resource.data.contributorName == request.auth.token.get("email", ""))
+           ));
+
+      allow update: if signedIn()
+        && canEdit(resource)
+        && validRecipe(request.resource.data)
+        && (isAdmin() || (
+              request.resource.data.ownerUid == resource.data.ownerUid
+              && request.resource.data.contributorName == resource.data.contributorName
+           ));
+
+      allow delete: if signedIn() && canEdit(resource);
+
+      match /comments/{commentId} {
+        allow read: if signedIn();
+        allow create: if signedIn()
+          && request.resource.data.keys().hasOnly(["text", "uid", "name", "createdAt"])
+          && request.resource.data.uid == request.auth.uid
+          && request.resource.data.text is string
+          && request.resource.data.text.size() > 0
+          && request.resource.data.text.size() <= 2000
+          && textOk(request.resource.data.name, 120);
+        allow delete: if signedIn() && (resource.data.uid == request.auth.uid || isAdmin());
+      }
+    }
+
+    match /users/{uid} {
+      allow read: if signedIn();
+
+      // People keep their own profile and favorites; only the admin sets linkedName.
+      allow create: if signedIn()
+        && (isAdmin() || (uid == request.auth.uid && !("linkedName" in request.resource.data)))
+        && request.resource.data.keys().hasOnly(["name", "email", "photo", "lastSeen", "favorites", "linkedName"]);
+
+      allow update: if signedIn()
+        && request.resource.data.keys().hasOnly(["name", "email", "photo", "lastSeen", "favorites", "linkedName"])
+        && (isAdmin() || (
+              uid == request.auth.uid
+              && request.resource.data.get("linkedName", "") == resource.data.get("linkedName", "")
+           ));
+    }
+  }
+}
